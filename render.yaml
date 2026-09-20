@@ -1,0 +1,34 @@
+# Render blueprint - one free Docker web service, SQLite-backed.
+#
+# Deploy: click the "Deploy to Render" button in the README, or in the Render
+# dashboard choose New > Blueprint and point it at this repo - it reads this
+# file automatically since it lives at the repo root.
+#
+# Deliberately no managed database here: Render's free Postgres now expires
+# 30 days after creation, which would quietly break the demo. SQLite is this
+# app's zero-setup default and persists on Render's container disk for the
+# life of the service, so the free tier stays free indefinitely. Point
+# DATABASE_URL at a Neon (or any) Postgres connection string later if you
+# want a longer-lived store or pgvector-backed retrieval - no code change
+# needed, just the env var.
+#
+# Render's free web services sleep after 15 minutes of inactivity and take
+# roughly 50 seconds to wake on the next request - expected behaviour for a
+# free-tier portfolio demo, not a bug.
+
+services:
+  - type: web
+    name: northwind-assistant
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: APP_ENV
+        value: production
+      - key: SEED_ON_STARTUP
+        value: "true"
+      - key: ANTHROPIC_API_KEY
+        sync: false

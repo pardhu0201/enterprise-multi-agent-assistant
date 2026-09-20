@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 #
 # Single-image deployment: the React bundle is built in stage one and served by
-# FastAPI in stage two, so the whole product runs as one free container on
-# Hugging Face Spaces, Render, Fly or any Docker host.
+# FastAPI in stage two, so the whole product runs as one container on any Docker
+# host. Render's free web-service tier (see render.yaml at the repo root) is the
+# recommended $0 option; Hugging Face Docker Spaces now require a paid PRO plan
+# even on cpu-basic, so they are no longer the free default.
 #
 #   docker build -t northwind-assistant .
 #   docker run -p 7860:7860 northwind-assistant

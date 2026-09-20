@@ -10,7 +10,12 @@ stopped at a human approval gate before it executes.
 > **verification agent** checks the answer and flags uncertainty. A **human**
 > approves before anything sensitive happens.
 
-**[Live demo →](#)** &nbsp;·&nbsp; runs for free in deterministic "demo mode" with no API key, and upgrades in place to Claude Opus 5 reasoning when one is supplied.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/pardhu0201/enterprise-multi-agent-assistant)
+
+One click, genuinely free (Render's free web-service tier — sleeps after 15
+minutes idle, ~50s to wake), and runs in deterministic "demo mode" with no API
+key. Add an `ANTHROPIC_API_KEY` in the Render dashboard afterwards to upgrade
+the same deployment to Claude Opus 5 reasoning.
 
 ![Assistant view — cited answer, prepared action, live agent trace](docs/screenshots/01-assistant.png)
 

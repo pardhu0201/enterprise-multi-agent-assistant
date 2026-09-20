@@ -26,6 +26,8 @@ business workflows. Four agents coordinate through a LangGraph state machine:
 Anything that would write to a business system stops at a **human approval
 gate** before it runs.
 
+> **Note:** Hugging Face now requires a paid PRO subscription to run a Docker Space even on the free `cpu-basic` tier. If you don't have PRO, use the Render deployment instead (`render.yaml` at the repo root) - it stays fully free. This file is kept for anyone who does have PRO and wants the no-sleep hosting it provides.
+
 This Space runs with no API key in deterministic mode: answers are extracted
 verbatim from the cited documents, so the demo is free and reproducible.
 Adding an `ANTHROPIC_API_KEY` secret switches the same graph to generative
