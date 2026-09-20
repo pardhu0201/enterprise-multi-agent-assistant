@@ -1,0 +1,40 @@
+# Local full-stack run with Postgres + pgvector, mirroring the production shape.
+#
+#   docker compose up --build        ->  http://localhost:7860
+#
+# Drop the `db` service and the DATABASE_URL line to run on SQLite instead.
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: northwind
+      POSTGRES_PASSWORD: northwind
+      POSTGRES_DB: assistant
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U northwind -d assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    ports:
+      - "7860:7860"
+    environment:
+      DATABASE_URL: postgresql+psycopg://northwind:northwind@db:5432/assistant
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
+      LLM_EFFORT: ${LLM_EFFORT:-medium}
+      SEED_ON_STARTUP: "true"
+      LOG_LEVEL: INFO
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

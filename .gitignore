@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Env / secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# Data / runtime artifacts
+backend/data/runtime/
+backend/data/*.db
+backend/data/*.db-journal
+*.sqlite3
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+.vercel/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build output copied in during local Docker testing - Docker rebuilds it
+backend/static/
+backend/eval-report.json

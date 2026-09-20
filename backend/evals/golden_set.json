@@ -1,0 +1,271 @@
+{
+  "description": "Golden evaluation set for the Northwind multi-agent assistant. Each case pins the routing decision, the document that must be retrieved, and facts the answer should surface.",
+  "cases": [
+    {
+      "id": "leave-notice",
+      "query": "How much notice do I need to book 5 days of annual leave?",
+      "intent": "question",
+      "tool": null,
+      "document": "Leave and Time Off Policy",
+      "must_contain": ["10 working days"],
+      "must_not_contain": ["15 working days", "30 working days"]
+    },
+    {
+      "id": "leave-entitlement",
+      "query": "How many days of paid annual leave do employees get each year?",
+      "intent": "question",
+      "tool": null,
+      "document": "Leave and Time Off Policy",
+      "must_contain": ["24 days"],
+      "must_not_contain": ["30 days"]
+    },
+    {
+      "id": "leave-carry-forward",
+      "query": "Can I carry unused annual leave into next year?",
+      "intent": "question",
+      "tool": null,
+      "document": "Leave and Time Off Policy",
+      "must_contain": ["6", "31 March"],
+      "must_not_contain": []
+    },
+    {
+      "id": "sick-certificate",
+      "query": "When do I need a medical certificate for sick leave?",
+      "intent": "question",
+      "tool": null,
+      "document": "Leave and Time Off Policy",
+      "must_contain": ["2 consecutive working days"],
+      "must_not_contain": []
+    },
+    {
+      "id": "parental-leave",
+      "query": "How long is maternity leave and how much notice does it need?",
+      "intent": "question",
+      "tool": null,
+      "document": "Leave and Time Off Policy",
+      "must_contain": ["26 weeks"],
+      "must_not_contain": []
+    },
+    {
+      "id": "expense-window",
+      "query": "How long do I have to file an expense claim?",
+      "intent": "question",
+      "tool": null,
+      "document": "Expense and Business Travel Policy",
+      "must_contain": ["30 days"],
+      "must_not_contain": ["60 days"]
+    },
+    {
+      "id": "expense-receipt",
+      "query": "When is a receipt mandatory for an expense?",
+      "intent": "question",
+      "tool": null,
+      "document": "Expense and Business Travel Policy",
+      "must_contain": ["1,000"],
+      "must_not_contain": []
+    },
+    {
+      "id": "expense-approver",
+      "query": "Who approves an expense claim of 75000 rupees?",
+      "intent": "question",
+      "tool": null,
+      "document": "Expense and Business Travel Policy",
+      "must_contain": ["Finance Controller"],
+      "must_not_contain": []
+    },
+    {
+      "id": "flight-class",
+      "query": "Can I book business class for a nine hour flight?",
+      "intent": "question",
+      "tool": null,
+      "document": "Expense and Business Travel Policy",
+      "must_contain": ["Director"],
+      "must_not_contain": []
+    },
+    {
+      "id": "self-bought-laptop",
+      "query": "I bought my own laptop, can I expense it?",
+      "intent": "question",
+      "tool": null,
+      "document": "Expense and Business Travel Policy",
+      "must_contain": ["IT"],
+      "must_not_contain": []
+    },
+    {
+      "id": "remote-abroad",
+      "query": "How many days can I work from another country before I need approval?",
+      "intent": "question",
+      "tool": null,
+      "document": "Remote Work and Hybrid Policy",
+      "must_contain": ["20 working days"],
+      "must_not_contain": []
+    },
+    {
+      "id": "office-days",
+      "query": "How many days a week do I have to be in the office?",
+      "intent": "question",
+      "tool": null,
+      "document": "Remote Work and Hybrid Policy",
+      "must_contain": ["3 days"],
+      "must_not_contain": []
+    },
+    {
+      "id": "mfa-lost",
+      "query": "I lost my MFA device, what do I do?",
+      "intent": "question",
+      "tool": null,
+      "document": "IT Service Desk Guide",
+      "must_contain": ["high"],
+      "must_not_contain": []
+    },
+    {
+      "id": "password-length",
+      "query": "What is the minimum password length?",
+      "intent": "question",
+      "tool": null,
+      "document": "Information Security Policy",
+      "must_contain": ["14 characters"],
+      "must_not_contain": []
+    },
+    {
+      "id": "incident-window",
+      "query": "How quickly must I report a suspected security incident?",
+      "intent": "question",
+      "tool": null,
+      "document": "Information Security Policy",
+      "must_contain": ["24"],
+      "must_not_contain": []
+    },
+    {
+      "id": "wrong-recipient",
+      "query": "I emailed customer data to the wrong person, what now?",
+      "intent": "question",
+      "tool": null,
+      "document": "Data Protection and Privacy Policy",
+      "must_contain": ["24 hours"],
+      "must_not_contain": []
+    },
+    {
+      "id": "dsr-deadline",
+      "query": "What is the deadline for a data subject access request?",
+      "intent": "question",
+      "tool": null,
+      "document": "Data Protection and Privacy Policy",
+      "must_contain": ["30 calendar days"],
+      "must_not_contain": []
+    },
+    {
+      "id": "bonus-target",
+      "query": "What is the annual bonus target for an individual contributor?",
+      "intent": "question",
+      "tool": null,
+      "document": "Performance and Compensation Guide",
+      "must_contain": ["10%"],
+      "must_not_contain": []
+    },
+    {
+      "id": "equity-cliff",
+      "query": "How does the equity vesting schedule work?",
+      "intent": "question",
+      "tool": null,
+      "document": "Performance and Compensation Guide",
+      "must_contain": ["4 years", "cliff"],
+      "must_not_contain": []
+    },
+    {
+      "id": "gift-register",
+      "query": "Do I need to declare a gift from a supplier?",
+      "intent": "question",
+      "tool": null,
+      "document": "Code of Conduct",
+      "must_contain": ["5,000"],
+      "must_not_contain": []
+    },
+    {
+      "id": "onboarding-training",
+      "query": "How long do I have to finish the mandatory training after joining?",
+      "intent": "question",
+      "tool": null,
+      "document": "Employee Onboarding Handbook",
+      "must_contain": ["10 working days"],
+      "must_not_contain": []
+    },
+    {
+      "id": "action-leave",
+      "query": "Please book 3 days of annual leave for me starting 2026-11-16",
+      "intent": "action",
+      "tool": "submit_leave_request",
+      "document": null,
+      "must_contain": [],
+      "must_not_contain": [],
+      "expected_arguments": {
+        "leave_type": "annual",
+        "start_date": "2026-11-16",
+        "end_date": "2026-11-18"
+      }
+    },
+    {
+      "id": "action-sick-leave",
+      "query": "I need to take sick leave on 2026-11-09, please submit it",
+      "intent": "action",
+      "tool": "submit_leave_request",
+      "document": null,
+      "must_contain": [],
+      "must_not_contain": [],
+      "expected_arguments": {
+        "leave_type": "sick",
+        "start_date": "2026-11-09",
+        "end_date": "2026-11-09"
+      }
+    },
+    {
+      "id": "action-expense",
+      "query": "Please file an expense claim for 2400 for a client dinner on 2026-09-15",
+      "intent": "action",
+      "tool": "submit_expense_claim",
+      "document": null,
+      "must_contain": [],
+      "must_not_contain": [],
+      "expected_arguments": {
+        "category": "meals",
+        "amount": 2400.0
+      }
+    },
+    {
+      "id": "action-it-ticket",
+      "query": "My laptop screen is broken, please raise a ticket urgently",
+      "intent": "action",
+      "tool": "raise_it_ticket",
+      "document": null,
+      "must_contain": [],
+      "must_not_contain": [],
+      "expected_arguments": {
+        "category": "hardware",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "mixed-leave",
+      "query": "Summarise the leave policy and book me 2 days off starting 2026-12-07",
+      "intent": "mixed",
+      "tool": "submit_leave_request",
+      "document": "Leave and Time Off Policy",
+      "must_contain": [],
+      "must_not_contain": [],
+      "expected_arguments": {
+        "start_date": "2026-12-07",
+        "end_date": "2026-12-08"
+      }
+    },
+    {
+      "id": "out-of-scope",
+      "query": "What is the share price forecast for next quarter?",
+      "intent": "question",
+      "tool": null,
+      "document": null,
+      "must_contain": [],
+      "must_not_contain": [],
+      "expect_low_confidence": true
+    }
+  ]
+}
