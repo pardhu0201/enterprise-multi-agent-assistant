@@ -178,3 +178,21 @@ def test_runs_needing_review_are_written_to_the_audit_log(db):
         assert [e.action for e in entries] == [f"run.{result['status']}"]
     else:  # pragma: no cover - the golden set pins this case as low-confidence
         assert result["confidence"] < 0.55
+
+
+def test_pure_balance_question_answers_from_the_record_only(db):
+    result = run_turn(db, query="How many leave days do I have left?")
+    assert result["answer"].startswith("**Your current leave balance**")
+    # No policy sentences from unrelated documents tacked on.
+    assert "[1]" not in result["answer"]
+    assert result["used_citations"] == []
+    assert result["status"] == "completed"
+    assert result["confidence"] >= 0.9
+    assert result["verification"]["mode"] == "deterministic"
+
+
+def test_balance_plus_policy_question_keeps_the_policy_answer(db):
+    result = run_turn(db, query="How many leave days do I have left, and can I carry them over?")
+    assert result["proposed_action"]["executed"] is True
+    assert "**Your current leave balance**" in result["answer"]
+    assert "[" in result["answer"], "the carry-forward part should be answered with citations"

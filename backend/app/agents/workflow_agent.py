@@ -24,6 +24,7 @@ from app.agents.dateparse import infer_range
 from app.agents.prompts import WORKFLOW_SYSTEM
 from app.agents.state import AgentState, RunContext, trace_event
 from app.logging_config import get_logger
+from app.rag.embeddings import tokenize
 from app.tools.business_tools import get_employee
 from app.tools.registry import ToolSpec, get_tool
 
@@ -190,6 +191,23 @@ def _format_balance(result: dict) -> str:
     )
 
 
+# Words a pure balance question is made of. Anything else in the request
+# ("...and can I carry them over?") is a policy question worth answering too.
+_LOOKUP_VOCABULARY = set(
+    tokenize(
+        "how many much what is my mine i me do does have has got left remain remaining "
+        "balance check show tell current currently still leave leaves day days annual "
+        "sick vacation holiday pto off time the a an of for please can you"
+    )
+)
+
+
+def _asks_beyond_lookup(query: str, tool: ToolSpec) -> bool:
+    keyword_terms = {t for phrase in tool.keywords for t in tokenize(phrase)}
+    extra = [t for t in tokenize(query) if t not in _LOOKUP_VOCABULARY and t not in keyword_terms]
+    return bool(extra)
+
+
 def _lookup_update(ctx, state, tool, validated, preflight, extraction, llm_result, started) -> dict:
     """Execute a read-only tool and fold its result into the answer."""
     arguments = json.loads(validated.model_dump_json())
@@ -220,7 +238,17 @@ def _lookup_update(ctx, state, tool, validated, preflight, extraction, llm_resul
             _format_balance(record) if tool.name == "check_leave_balance" else json.dumps(record)
         )
         policy = (state.get("answer") or "").strip()
-        update["answer"] = f"{summary_line}\n\n{policy}" if policy else summary_line
+        if policy and _asks_beyond_lookup(state["query"], tool):
+            update["answer"] = f"{summary_line}\n\n{policy}"
+        else:
+            # "How many leave days do I have left?" asks the HR system, not the
+            # handbook. Appending whatever policy sentences retrieval surfaced
+            # (often from unrelated documents) only adds noise.
+            update["answer"] = summary_line
+            update["answer_source"] = "record"
+            update["used_citations"] = []
+            update["insufficient_evidence"] = False
+            update["follow_up_question"] = ""
 
     update["trace"] = [
         trace_event(

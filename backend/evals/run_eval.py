@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,6 +42,31 @@ from app.rag.retriever import retrieve  # noqa: E402
 
 GOLDEN_SET = Path(__file__).parent / "golden_set.json"
 RECALL_K = 5
+
+# Action cases need dates that are always in the future (or, for expenses,
+# recently in the past). Fixed dates silently age into policy blockers, so the
+# golden set uses placeholders resolved against today.
+_DATE_PLACEHOLDER = re.compile(r"\{\{(today|monday)([+-]\d+)(?:\+(\d+))?\}\}")
+
+
+def resolve_dates(value, today: date | None = None):
+    """Replace ``{{today-N}}`` / ``{{monday+N}}`` / ``{{monday+N+K}}`` with ISO dates."""
+    today = today or date.today()
+    if isinstance(value, dict):
+        return {k: resolve_dates(v, today) for k, v in value.items()}
+    if isinstance(value, list):
+        return [resolve_dates(v, today) for v in value]
+    if not isinstance(value, str):
+        return value
+
+    def replace(match: re.Match) -> str:
+        anchor, offset, extra = match.group(1), int(match.group(2)), int(match.group(3) or 0)
+        day = today + timedelta(days=offset)
+        if anchor == "monday":
+            day += timedelta(days=(7 - day.weekday()) % 7)
+        return (day + timedelta(days=extra)).isoformat()
+
+    return _DATE_PLACEHOLDER.sub(replace, value)
 
 
 def _normalise(text: str) -> str:
@@ -173,7 +200,7 @@ def main() -> int:
     initialise(seed=True)
 
     payload = json.loads(GOLDEN_SET.read_text(encoding="utf-8"))
-    cases = payload["cases"]
+    cases = resolve_dates(payload["cases"])
     if args.case:
         cases = [c for c in cases if c["id"] == args.case]
         if not cases:

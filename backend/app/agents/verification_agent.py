@@ -340,12 +340,24 @@ def run_programmatic_checks(
     }
 
 
+def _grading_intent(state: AgentState) -> str:
+    """The intent an answer is graded as.
+
+    An answer drawn solely from a read-only lookup cites no passages by design,
+    so holding it to citation coverage would mark a correct answer as weak:
+    grade it like an action - on whether the lookup itself succeeded.
+    """
+    if state.get("answer_source") == "record":
+        return "action"
+    return state.get("intent", "question")
+
+
 def _flags_from(checks: dict, state: AgentState) -> list[str]:
     flags: list[str] = []
 
     # A pure action turn asks the corpus nothing, so answer-quality flags would
     # be noise on it - only the action's own flags mean anything there.
-    grade_answer = state.get("intent") != "action"
+    grade_answer = _grading_intent(state) != "action"
 
     if grade_answer:
         if not state.get("retrieved"):
@@ -385,7 +397,7 @@ def verification_node(state: AgentState, config: RunnableConfig) -> dict:
     proposed_action = state.get("proposed_action")
 
     checks = run_programmatic_checks(
-        state["query"], answer, retrieved, proposed_action, state.get("intent", "question")
+        state["query"], answer, retrieved, proposed_action, _grading_intent(state)
     )
 
     def deterministic_review() -> VerificationOutput:
@@ -410,6 +422,13 @@ def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         review = VerificationOutput(llm_confidence=1.0, recommendation="answer")
         result_mode = "skipped"
         confidence = 1.0
+    elif state.get("answer_source") == "record":
+        # The answer quotes the system of record, not the passages, so there is
+        # nothing for a model to check it against - the deterministic grade of
+        # the lookup itself is the whole story.
+        review = deterministic_review()
+        result_mode = "deterministic"
+        confidence = checks["programmatic_confidence"]
     else:
         action_text = "(none)"
         if proposed_action:
