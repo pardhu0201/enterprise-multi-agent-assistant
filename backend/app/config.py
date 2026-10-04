@@ -55,7 +55,14 @@ class Settings(BaseSettings):
     seed_on_startup: bool = True
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Optional regex for extra origins, e.g. your own Vercel previews:
+    # ^https://northwind-assistant(-[a-z0-9-]+)?\.vercel\.app$
+    # Empty by default: trusting every *.vercel.app site would let any Vercel
+    # project call this API from a browser.
+    cors_origin_regex: str = ""
     serve_frontend: bool = True
+    # When set, state-changing endpoints require an X-Admin-Token header.
+    admin_token: str = ""
 
     @field_validator("llm_effort")
     @classmethod

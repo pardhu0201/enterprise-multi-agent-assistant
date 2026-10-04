@@ -90,7 +90,7 @@ scoring model are documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 | Retrieval | Hybrid BM25 + hashing/sentence-transformer embeddings, **pgvector** (or in-process numpy) |
 | Database | **PostgreSQL** in production, SQLite with zero setup for local dev/CI |
 | Frontend | **React 19**, TypeScript, Tailwind v4, Vite |
-| Tests / evals | pytest (56 tests), a golden-set eval harness, ruff |
+| Tests / evals | pytest (70 tests), a 30-case golden-set eval harness, ruff |
 | CI/CD | GitHub Actions — lint, tests, evals, and a full Docker boot-and-healthcheck |
 | Deployment | Single Docker image (frontend baked into the FastAPI static root) — free-tier ready on Hugging Face Spaces, Render, or Fly |
 
@@ -138,8 +138,8 @@ Postgres URL, or embedding provider — every setting has a working default.
 
 ```bash
 cd backend
-pytest -q                         # 56 tests: RAG, tools, verification, full API
-python -m evals/run_eval.py       # routing/retrieval/citation/safety scorecard
+pytest -q                         # 70 tests: RAG, tools, verification, full API
+python -m evals.run_eval          # routing/retrieval/citation/safety scorecard
 ```
 
 ## How the free demo works
@@ -176,7 +176,7 @@ backend/
     db/              # SQLAlchemy models, engine, seed data
   data/corpus/      # 9 seed policy documents (leave, expenses, security, ...)
   evals/            # golden-set evaluation harness
-  tests/            # 56 pytest tests
+  tests/            # 70 pytest tests
 frontend/
   src/
     pages/          # Assistant, Approvals, Knowledge base, Observability

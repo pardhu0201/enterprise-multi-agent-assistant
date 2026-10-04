@@ -15,13 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.agents.graph import COMPILED_GRAPH
 from app.agents.state import RunContext
-from app.db.models import Conversation, Message, Run, RunEvent, utcnow
+from app.db.models import AuditLog, Conversation, Message, Run, RunEvent
 from app.llm.client import get_llm
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
 
 HISTORY_TURNS = 6
+# Run outcomes a person should look at.
+REVIEW_STATUSES = {"escalated", "needs_clarification"}
 
 
 def _get_or_create_conversation(db: Session, conversation_id: str | None, employee_id: str):
@@ -95,6 +97,9 @@ def iter_turn(
         llm_mode=llm.mode,
     )
     db.add(run)
+    # Column defaults (the uuid primary key) are only applied on flush, so
+    # flush before reading run.id - otherwise the message is linked to None.
+    db.flush()
     db.add(Message(conversation_id=conversation.id, role="user", content=query, run_id=run.id))
     if conversation.title == "New conversation":
         conversation.title = query.strip()[:80]
@@ -180,6 +185,23 @@ def iter_turn(
             run_id=run.id,
         )
     )
+    if run.status in REVIEW_STATUSES:
+        # Low-confidence answers are surfaced for human review, not silently
+        # returned: the audit trail is the review queue's source of truth.
+        db.add(
+            AuditLog(
+                actor="verification_agent",
+                action=f"run.{run.status}",
+                entity="run",
+                entity_id=run.id,
+                payload={
+                    "query": query[:500],
+                    "confidence": run.confidence,
+                    "flags": state.get("flags", []),
+                    "employee_id": employee_id,
+                },
+            )
+        )
     db.commit()
     db.refresh(run)
 
@@ -201,23 +223,3 @@ def run_turn(
         if event["event"] in {"final", "error"}:
             payload = event["data"]
     return payload
-
-
-def record_followup_message(db: Session, conversation_id: str, content: str, run_id: str) -> None:
-    db.add(
-        Message(
-            conversation_id=conversation_id,
-            role="assistant",
-            content=content,
-            run_id=run_id,
-        )
-    )
-    db.commit()
-
-
-def touch_run_status(db: Session, run_id: str, status: str) -> None:
-    run = db.get(Run, run_id)
-    if run is not None:
-        run.status = status
-        run.created_at = run.created_at or utcnow()
-        db.commit()

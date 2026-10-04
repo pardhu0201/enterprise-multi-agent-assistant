@@ -134,3 +134,66 @@ def test_read_only_tool_needs_no_approval():
     assert all(
         spec.requires_approval for name, spec in TOOLS.items() if name != "check_leave_balance"
     )
+    for spec in TOOLS.values():
+        # Running a tool inside the graph is only allowed for pure lookups.
+        if spec.read_only:
+            assert spec.requires_approval is False
+
+
+# --- hard guards stay in sync with the policy text ---------------------------
+def test_preflight_constants_match_the_policy_corpus():
+    """The preflight thresholds are hard-coded guards that mirror the policy.
+
+    If HR edits the documents, this fails instead of the guard silently
+    enforcing a stale rule while the assistant quotes the new one.
+    """
+    from app.config import CORPUS_DIR
+    from app.tools import business_tools as bt
+
+    leave = (CORPUS_DIR / "leave-and-time-off-policy.md").read_text(encoding="utf-8")
+    expense = (CORPUS_DIR / "expense-and-travel-policy.md").read_text(encoding="utf-8")
+    flat_leave = " ".join(leave.replace("*", "").split())
+    flat_expense = " ".join(expense.replace("*", "").split())
+
+    assert (
+        f"{bt.LONG_LEAVE_THRESHOLD_DAYS} or more consecutive working days require "
+        f"{bt.LONG_LEAVE_NOTICE_DAYS} working days" in flat_leave
+    )
+    assert f"require {bt.SHORT_LEAVE_NOTICE_DAYS} working days of notice" in flat_leave
+    assert f"longer than {bt.MAX_CONSECUTIVE_DAYS} consecutive working days" in flat_leave
+    assert f"above INR {bt.RECEIPT_THRESHOLD:,.0f}" in flat_expense
+    assert f"Up to {bt.MANAGER_APPROVAL_THRESHOLD:,.0f}" in flat_expense
+    assert f"Above {bt.FINANCE_APPROVAL_THRESHOLD:,.0f}" in flat_expense
+    assert f"older than {bt.EXPENSE_WINDOW_DAYS} days" in flat_expense
+
+
+# --- approvals service --------------------------------------------------------
+def test_stale_session_cannot_execute_an_approval_twice(db):
+    """Two deciders racing on one request: exactly one may execute it."""
+    from app.agents.runner import run_turn
+    from app.db.base import SessionLocal
+    from app.db.models import Approval, LeaveRequest
+    from app.services.approvals import ApprovalError, decide
+
+    start = date.today() + timedelta(days=50)
+    start += timedelta(days=(7 - start.weekday()) % 7)  # a Monday
+    turn = run_turn(db, query=f"Book annual leave for 1 day on {start.isoformat()}")
+    approval_id = turn["approval_id"]
+
+    # Session A reads the request while it is still pending...
+    stale = SessionLocal()
+    try:
+        assert stale.get(Approval, approval_id).status == "pending"
+
+        # ...session B approves and executes it...
+        first = decide(db, approval_id, decision="approve", decided_by="priya@northwind.example")
+        assert first["status"] == "approved"
+
+        # ...and A, still holding its stale 'pending' copy, must be refused.
+        with pytest.raises(ApprovalError):
+            decide(stale, approval_id, decision="approve", decided_by="marcus@northwind.example")
+    finally:
+        stale.close()
+
+    executed = db.query(LeaveRequest).filter(LeaveRequest.approval_id == approval_id).count()
+    assert executed == 1

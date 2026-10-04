@@ -37,7 +37,9 @@ For "smalltalk" return an empty list.
 
 Set `candidate_tool` to the single best matching tool name from the catalogue
 below, or "" when no business action is requested. Never guess a tool that is
-not listed.
+not listed. When the employee asks about their *own* data that a read-only
+(risk=low) tool returns - e.g. "how many leave days do I have left?" - keep
+`intent` as "question" but still set `candidate_tool` to that tool.
 
 `rationale` is one sentence explaining the routing decision.
 """

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.agents.graph import graph_topology
+from app.agents.runner import REVIEW_STATUSES
 from app.config import settings
 from app.db.base import engine, get_session
 from app.db.models import Approval, Chunk, Document, Employee, Run
@@ -89,6 +90,7 @@ def metrics(db: Session = Depends(get_session)):
             round(len(low_confidence) / len(confidences), 3) if confidences else 0.0
         ),
         actions_executed=sum(1 for a in approvals if a.status == "approved"),
+        runs_needing_review=sum(1 for r in runs if r.status in REVIEW_STATUSES),
         top_documents=[
             {"title": title, "citations": count} for title, count in document_hits.most_common(6)
         ],

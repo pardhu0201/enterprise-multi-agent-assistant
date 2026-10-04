@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Ban, Check, Loader2, ShieldAlert, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, Loader2, Search, ShieldAlert, X } from "lucide-react";
 
 import { api, type ProposedAction } from "../lib/api";
 import { KeyValue, RiskBadge } from "./primitives";
@@ -23,6 +23,41 @@ export default function ActionCard({
   const [note, setNote] = useState("");
 
   const blocked = action.blockers.length > 0;
+
+  // A read-only lookup already ran and changed nothing - there is no decision
+  // to make, so it is shown as a result rather than an approval request.
+  if (!action.requires_approval) {
+    return (
+      <section className="panel-2 overflow-hidden">
+        <header className="flex flex-wrap items-center gap-2.5 border-b border-[var(--color-line)] bg-[var(--color-surface-3)] px-4 py-3">
+          <Search size={15} className="text-[var(--color-brand-2)]" />
+          <span className="text-[13px] font-semibold">
+            {action.executed ? "Looked up from the HR system" : "Lookup could not run"}
+          </span>
+          <code className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-brand-2)]">
+            {action.tool_name}
+          </code>
+          <div className="ml-auto flex gap-1.5">
+            <RiskBadge risk={action.risk} />
+          </div>
+        </header>
+        <div className="space-y-4 p-4">
+          <p className="text-[12px] text-[var(--color-ink-3)]">
+            Read-only - nothing was submitted or changed, so no approval was needed.
+          </p>
+          <KeyValue data={action.preview} />
+          {blocked && (
+            <IssueList
+              tone="danger"
+              icon={<Ban size={13} />}
+              title="Could not look this up"
+              items={action.blockers}
+            />
+          )}
+        </div>
+      </section>
+    );
+  }
 
   const decide = async (decision: "approve" | "reject") => {
     if (!approvalId) return;

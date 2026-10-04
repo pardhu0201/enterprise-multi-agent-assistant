@@ -183,6 +183,28 @@ def query_coverage(query: str, evidence_text: str) -> float:
     return len(terms & evidence_terms) / len(terms)
 
 
+def _record_text(proposed_action: dict | None) -> str:
+    """Flatten an executed read-only lookup's result into plain text."""
+    if not proposed_action or not proposed_action.get("executed"):
+        return ""
+    parts: list[str] = []
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+        elif isinstance(value, float):
+            parts.append(f"{value:g}")
+        elif value is not None:
+            parts.append(str(value))
+
+    walk(proposed_action.get("result") or {})
+    return " ".join(parts)
+
+
 def run_programmatic_checks(
     query: str,
     answer: str,
@@ -192,6 +214,10 @@ def run_programmatic_checks(
 ) -> dict:
     passages = {item["index"]: item["content"] for item in retrieved}
     evidence_text = "\n".join(passages.values())
+    # A read-only lookup (e.g. the leave balance) answers from the system of
+    # record, not the corpus. Its figures are grounded by definition, so they
+    # count as evidence for the numeric check - but not for citation checks.
+    record_text = _record_text(proposed_action)
 
     # IDF across the retrieved evidence
     df: Counter = Counter()
@@ -222,7 +248,7 @@ def run_programmatic_checks(
             weak_sentences.append(sentence)
     support = sum(support_scores) / len(support_scores) if support_scores else 0.0
 
-    evidence_numbers = extract_numbers(evidence_text)
+    evidence_numbers = extract_numbers(evidence_text) | extract_numbers(record_text)
     answer_numbers = extract_numbers(answer)
     ungrounded_numbers = sorted(
         n for n in answer_numbers - evidence_numbers if len(n) > 1 or int(float(n)) > 3
@@ -417,9 +443,11 @@ def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         review: VerificationOutput = result.value  # type: ignore[assignment]
         result_mode = result.mode
         if result_mode == "claude":
-            # Blend: neither signal is trusted alone, and the lower one dominates.
+            # The model is a second opinion that may only pull the score down:
+            # a self-assessed "0.95" must never rescue an answer the
+            # deterministic checks found weak.
             blended = 0.5 * checks["programmatic_confidence"] + 0.5 * review.llm_confidence
-            confidence = min(blended, max(checks["programmatic_confidence"], review.llm_confidence))
+            confidence = min(checks["programmatic_confidence"], blended)
         else:
             confidence = checks["programmatic_confidence"]
 
@@ -434,6 +462,9 @@ def verification_node(state: AgentState, config: RunnableConfig) -> dict:
     # --- routing decision -------------------------------------------------
     needs_action = proposed_action is not None
     tool_requires_approval = bool(proposed_action and proposed_action.get("requires_approval"))
+    # A read-only lookup has already run inside the workflow node; queueing it
+    # for approval afterwards would gate nothing.
+    already_executed = bool(proposed_action and proposed_action.get("executed"))
     low_confidence = confidence < settings.confidence_threshold
 
     can_retry = (
@@ -445,7 +476,11 @@ def verification_node(state: AgentState, config: RunnableConfig) -> dict:
 
     if can_retry:
         decision = "retry"
-    elif needs_action and (tool_requires_approval or low_confidence or checks["action_blockers"]):
+    elif (
+        needs_action
+        and not already_executed
+        and (tool_requires_approval or low_confidence or checks["action_blockers"])
+    ):
         decision = "approval"
     elif review.recommendation == "escalate" or (low_confidence and retrieved):
         decision = "escalate"

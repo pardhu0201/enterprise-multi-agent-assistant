@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.security import require_admin
 from app.db.base import get_session
 from app.db.models import Document
 from app.logging_config import get_logger
@@ -40,7 +41,9 @@ def list_documents(db: Session = Depends(get_session)):
     ]
 
 
-@router.post("/documents/upload", response_model=IngestResponse)
+@router.post(
+    "/documents/upload", response_model=IngestResponse, dependencies=[Depends(require_admin)]
+)
 async def upload_document(
     file: UploadFile = File(...),
     department: str = Form("General"),
@@ -87,7 +90,11 @@ async def upload_document(
     )
 
 
-@router.post("/documents/reindex", response_model=list[IngestResponse])
+@router.post(
+    "/documents/reindex",
+    response_model=list[IngestResponse],
+    dependencies=[Depends(require_admin)],
+)
 def reindex_corpus(db: Session = Depends(get_session)):
     """Re-ingest the bundled seed corpus (useful after changing the embedder)."""
     results = ingest_corpus(db)
@@ -103,7 +110,7 @@ def reindex_corpus(db: Session = Depends(get_session)):
     ]
 
 
-@router.delete("/documents/{document_id}")
+@router.delete("/documents/{document_id}", dependencies=[Depends(require_admin)])
 def remove_document(document_id: str, db: Session = Depends(get_session)):
     if not delete_document(db, document_id):
         raise HTTPException(status_code=404, detail="Document not found")

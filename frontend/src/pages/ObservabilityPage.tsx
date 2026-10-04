@@ -110,7 +110,9 @@ function StatRow({ metrics }: { metrics: Metrics }) {
       label: "Mean confidence",
       value: `${Math.round(metrics.average_confidence * 100)}%`,
       icon: ShieldCheck,
-      note: `${Math.round(metrics.low_confidence_rate * 100)}% below threshold`,
+      note:
+        `${Math.round(metrics.low_confidence_rate * 100)}% below threshold` +
+        (metrics.runs_needing_review ? ` · ${metrics.runs_needing_review} flagged for review` : ""),
     },
     {
       label: "Mean latency",

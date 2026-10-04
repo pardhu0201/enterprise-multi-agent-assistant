@@ -101,12 +101,37 @@ requires both scores to hold.
 
 ## Human-in-the-loop
 
-`backend/app/services/approvals.py` is the only code path that calls a tool's
-`execute()`. The agent graph builds a `ProposedAction` and, for anything
-`requires_approval=True`, that's as far as it goes — an `Approval` row is
-persisted and the graph ends. Approving re-validates the arguments (never
-trusts what was stored), re-runs the preflight against current data, executes,
-and writes to the audit log. Rejecting is a dead end — nothing runs.
+`backend/app/services/approvals.py` is the only code path that calls a
+writing tool's `execute()`. The agent graph builds a `ProposedAction` and, for
+anything `requires_approval=True`, that's as far as it goes — an `Approval`
+row is persisted and the graph ends. Approving re-validates the arguments
+(never trusts what was stored), re-runs the preflight against current data,
+executes, and writes to the audit log. Rejecting is a dead end — nothing runs.
+
+Guarantees on the decision path:
+
+- **Exactly-once execution.** A decision first *claims* the request with an
+  atomic `UPDATE … WHERE status = 'pending'`. Two concurrent approvals cannot
+  both see `pending`: one wins, the other gets HTTP 409.
+- **Four-eyes rule.** The person who raised a request may withdraw (reject)
+  it but never approve it (HTTP 403).
+- **Optional lock-down.** With `ADMIN_TOKEN` set, decisions and every other
+  state-changing endpoint require an `X-Admin-Token` header. The public demo
+  leaves it unset so visitors can try the flow. Identity still comes from the
+  request body; a real deployment would sit behind SSO.
+
+The one exception to "the graph never executes" is a tool registered as both
+`read_only=True` and `requires_approval=False` — today only
+`check_leave_balance`. It changes nothing, so the workflow agent runs it
+directly when an employee asks about their own data ("how many leave days do
+I have left?") and folds the result into the answer. Figures from that lookup
+count as grounded evidence for the numeric check, because they come from the
+system of record rather than the corpus.
+
+Turns the verifier escalates or sends back for clarification are written to
+the audit log (`run.escalated` / `run.needs_clarification`) and counted in
+`/api/metrics` as `runs_needing_review`, so low-confidence answers leave a
+reviewable trail instead of only a status flag.
 
 ## Data model
 
@@ -118,7 +143,7 @@ reads and the approval flow writes to.
 
 ## Evaluation
 
-`backend/evals/golden_set.json` + `run_eval.py` scores the system against 27
+`backend/evals/golden_set.json` + `run_eval.py` scores the system against 30
 labelled cases spanning every document and both question/action intents:
 routing accuracy, retrieval recall@5/MRR, citation validity, groundedness,
 hallucinated-number rate, action-argument accuracy, and — critically — whether

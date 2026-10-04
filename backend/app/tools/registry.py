@@ -13,7 +13,8 @@ possible:
 ``execute``
     Actually write to the system of record. For anything flagged
     ``requires_approval`` this is unreachable until a human approves the
-    queued request - the agent graph itself cannot call it.
+    queued request - the agent graph itself cannot call it. Only tools marked
+    ``read_only`` (pure lookups) are executed inside the graph.
 """
 
 from __future__ import annotations
@@ -55,6 +56,9 @@ class ToolSpec:
     preflight: Callable[[Session, str, BaseModel], PreflightResult]
     execute: Callable[[Session, str, BaseModel, str | None], dict]
     keywords: tuple[str, ...] = ()
+    # Read-only tools change nothing, so the workflow agent may run them
+    # directly. Both this *and* requires_approval=False are needed.
+    read_only: bool = False
 
     def json_schema(self) -> dict:
         return self.args_model.model_json_schema()
@@ -111,7 +115,17 @@ TOOLS: dict[str, ToolSpec] = {
         requires_approval=False,
         preflight=impl.preflight_leave_balance,
         execute=impl.execute_leave_balance,
-        keywords=("balance", "how many days", "remaining leave", "left"),
+        keywords=(
+            # Not a bare "how many days": "How many days can I work abroad?"
+            # is a policy question, not a request for the employee's balance.
+            "balance",
+            "how many leave days",
+            "remaining leave",
+            "leave remaining",
+            "days left",
+            "have left",
+        ),
+        read_only=True,
     ),
 }
 

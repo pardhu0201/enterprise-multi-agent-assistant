@@ -258,6 +258,38 @@
       }
     },
     {
+      "id": "balance-lookup",
+      "query": "How many annual leave days do I have left?",
+      "intent": "question",
+      "tool": "check_leave_balance",
+      "document": null,
+      "must_contain": ["annual leave days remaining"],
+      "must_not_contain": []
+    },
+    {
+      "id": "abroad-days-not-a-lookup",
+      "query": "How many days a year can I work from abroad?",
+      "intent": "question",
+      "tool": null,
+      "document": "Remote Work and Hybrid Policy",
+      "must_contain": [],
+      "must_not_contain": []
+    },
+    {
+      "id": "intent-statement",
+      "query": "I need to take a sick day on 2026-12-14",
+      "intent": "action",
+      "tool": "submit_leave_request",
+      "document": null,
+      "must_contain": [],
+      "must_not_contain": [],
+      "expected_arguments": {
+        "leave_type": "sick",
+        "start_date": "2026-12-14",
+        "end_date": "2026-12-14"
+      }
+    },
+    {
       "id": "out-of-scope",
       "query": "What is the share price forecast for next quarter?",
       "intent": "question",

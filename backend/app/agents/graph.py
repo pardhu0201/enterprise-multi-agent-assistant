@@ -30,6 +30,7 @@ from app.agents.verification_agent import verification_node
 from app.agents.workflow_agent import workflow_node
 from app.db.models import Approval
 from app.logging_config import get_logger
+from app.tools.registry import get_tool
 
 log = get_logger(__name__)
 
@@ -111,7 +112,13 @@ def approval_gate_node(state: AgentState, config: RunnableConfig) -> dict:
 # Routing
 # ---------------------------------------------------------------------------
 def route_after_reasoning(state: AgentState) -> str:
-    if state.get("candidate_tool") and state.get("intent") in {"action", "mixed"}:
+    tool = get_tool(state.get("candidate_tool") or "")
+    if tool is None:
+        return "verification"
+    if state.get("intent") in {"action", "mixed"}:
+        return "workflow"
+    # A question about the employee's own data is answered by a read-only lookup.
+    if tool.read_only and not tool.requires_approval:
         return "workflow"
     return "verification"
 
@@ -178,7 +185,11 @@ def graph_topology() -> dict:
         "edges": [
             {"source": "planner", "target": "retrieval"},
             {"source": "retrieval", "target": "reasoning"},
-            {"source": "reasoning", "target": "workflow", "condition": "action intent"},
+            {
+                "source": "reasoning",
+                "target": "workflow",
+                "condition": "action intent or own-data lookup",
+            },
             {"source": "reasoning", "target": "verification", "condition": "question intent"},
             {"source": "workflow", "target": "verification"},
             {"source": "verification", "target": "retrieval", "condition": "evidence too thin"},

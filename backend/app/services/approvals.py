@@ -8,10 +8,10 @@ the audit log.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import Approval, AuditLog, Message, Run, utcnow
+from app.db.models import Approval, AuditLog, Employee, Message, Run, utcnow
 from app.logging_config import get_logger
 from app.tools.registry import get_tool
 
@@ -19,7 +19,35 @@ log = get_logger(__name__)
 
 
 class ApprovalError(Exception):
-    """Raised when a decision cannot be applied."""
+    """Raised when a decision cannot be applied (maps to HTTP 409)."""
+
+
+class ApprovalForbidden(ApprovalError):
+    """Raised when the decider may not make this decision (maps to HTTP 403)."""
+
+
+def _requester_identities(db: Session, approval: Approval) -> set[str]:
+    identities = {approval.requested_by.strip().lower()}
+    employee = db.get(Employee, approval.requested_by)
+    if employee is not None and employee.email:
+        identities.add(employee.email.strip().lower())
+    return identities
+
+
+def _claim(db: Session, approval_id: str) -> bool:
+    """Atomically move a request out of `pending` so it can only be decided once.
+
+    Check-then-write on the ORM object would let two concurrent approvals both
+    see `pending` and both execute the tool. A conditional UPDATE is atomic on
+    every backend: exactly one caller gets rowcount 1.
+    """
+    result = db.execute(
+        update(Approval)
+        .where(Approval.id == approval_id, Approval.status == "pending")
+        .values(status="processing")
+    )
+    db.commit()
+    return result.rowcount == 1
 
 
 def list_approvals(db: Session, status: str | None = None, limit: int = 50) -> list[Approval]:
@@ -73,6 +101,17 @@ def decide(
         raise ApprovalError(f"Approval {approval_id} not found")
     if approval.status != "pending":
         raise ApprovalError(f"Approval {approval_id} is already {approval.status}")
+
+    decided_by = (decided_by or "").strip() or "manager@northwind.example"
+    # Four-eyes principle: the requester may withdraw (reject) their own
+    # request, but never approve it.
+    if decision == "approve" and decided_by.lower() in _requester_identities(db, approval):
+        raise ApprovalForbidden("A request cannot be approved by the person who raised it")
+
+    if not _claim(db, approval_id):
+        db.refresh(approval)
+        raise ApprovalError(f"Approval {approval_id} is already {approval.status}")
+    db.refresh(approval)
 
     approval.decided_by = decided_by
     approval.decision_note = note
