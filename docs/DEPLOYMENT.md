@@ -59,9 +59,22 @@ a custom domain on Vercel) rather than the single-container deploy above.
    ```
    VITE_API_BASE=https://<your-render-service>.onrender.com
    ```
-3. Vercel's preview/prod domains are already allow-listed in the backend's
-   CORS config (`allow_origin_regex` matches `*.vercel.app`); add a custom
-   domain to `CORS_ORIGINS` if you use one.
+3. Allow your frontend's origin on the backend. Set `CORS_ORIGINS` to your
+   production URL (comma-separated), and optionally `CORS_ORIGIN_REGEX` to
+   cover your own preview deployments, e.g.
+   `^https://northwind-assistant(-[a-z0-9-]+)?\.vercel\.app$`. The backend no
+   longer trusts every `*.vercel.app` origin by default - that would let any
+   Vercel-hosted site call the API from a visitor's browser.
+
+## Locking down a deployment
+
+The public demo is intentionally open so visitors can try the approval flow.
+Set `ADMIN_TOKEN` to require an `X-Admin-Token` header on every endpoint that
+changes shared state: approval decisions, document upload/delete/reindex and
+conversation deletes. The UI asks for the token the first time one of those
+calls is rejected and remembers it in the browser. This is a shared secret,
+not user authentication; a production deployment would sit behind SSO and
+derive the approver's identity from the session.
 
 ## Local: Docker Compose (Postgres + pgvector, mirrors a production shape)
 

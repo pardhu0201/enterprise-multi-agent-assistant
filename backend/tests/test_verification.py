@@ -101,3 +101,63 @@ def test_action_blockers_are_surfaced():
     assert checks["action_blockers"]
     assert checks["action_warnings"]
     assert checks["programmatic_confidence"] < 0.8
+
+
+# --- model second opinion ----------------------------------------------------
+class _StubLLM:
+    """Pretends to be Claude and returns a fixed self-assessed confidence."""
+
+    def __init__(self, confidence: float) -> None:
+        self.confidence = confidence
+
+    def structured(self, *, schema, **_):
+        from app.llm.client import LLMResult
+
+        return LLMResult(value=schema(llm_confidence=self.confidence), mode="claude")
+
+
+def _verify(answer: str, llm_confidence: float) -> tuple[dict, float]:
+    from app.agents.state import RunContext
+    from app.agents.verification_agent import verification_node
+
+    ctx = RunContext(db=None, llm=_StubLLM(llm_confidence), employee_id="E-1001")  # type: ignore[arg-type]
+    state = {
+        "query": QUERY,
+        "intent": "question",
+        "answer": answer,
+        "retrieved": PASSAGES,
+        "context_block": "",
+        "retrieval_attempt": 2,
+    }
+    update = verification_node(state, {"configurable": {"ctx": ctx}})
+    return update["verification"], update["confidence"]
+
+
+def test_model_confidence_can_only_lower_the_score():
+    weak = "Employees receive 45 days of paid annual leave per calendar year [1]."
+    verification, confidence = _verify(weak, llm_confidence=1.0)
+    # An over-confident model must not rescue an answer with an invented number.
+    assert confidence == verification["programmatic_confidence"]
+
+    strong = (
+        "Every full-time employee receives 24 days of paid annual leave per calendar year [1]. "
+        "Requests of 3 or more consecutive working days require 10 working days of notice [2]."
+    )
+    verification, confidence = _verify(strong, llm_confidence=0.2)
+    # A sceptical model does pull a good score down.
+    assert confidence < verification["programmatic_confidence"]
+
+
+def test_system_of_record_numbers_count_as_grounded():
+    lookup = {
+        "tool_name": "check_leave_balance",
+        "executed": True,
+        "requires_approval": False,
+        "result": {"annual": {"entitlement": 24.0, "used": 6.0, "remaining": 18.0}},
+        "blockers": [],
+        "warnings": [],
+    }
+    answer = "You have 18 of 24 annual leave days remaining (6 used)."
+    assert run_programmatic_checks(QUERY, answer, PASSAGES, lookup)["ungrounded_numbers"] == []
+    # The same figure without a lookup behind it is still caught.
+    assert "18" in run_programmatic_checks(QUERY, answer, PASSAGES, None)["ungrounded_numbers"]

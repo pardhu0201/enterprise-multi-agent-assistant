@@ -106,3 +106,58 @@ def test_context_block_is_numbered_and_budgeted(db):
     assert block.startswith("[1]")
     assert "source=" in block and "section=" in block
     assert len(block) // 4 <= 600
+
+
+def test_inverted_bm25_matches_a_naive_implementation(db):
+    """The postings-based index must score exactly like textbook BM25."""
+    import math
+
+    from app.rag.embeddings import tokenize
+    from app.rag.retriever import BM25Index
+    from app.rag.store import corpus_snapshot
+
+    chunks = corpus_snapshot(db)
+    index = BM25Index.build(chunks)
+    query = "annual leave notice working days"
+
+    docs = [tokenize(c.content) for c in chunks]
+    avg = sum(len(d) for d in docs) / len(docs)
+    n = len(docs)
+    naive = []
+    for tokens in docs:
+        score = 0.0
+        for term in set(tokenize(query)):
+            df = sum(1 for d in docs if term in d)
+            tf = tokens.count(term)
+            if not df or not tf:
+                continue
+            idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
+            norm = 1 - index.b + index.b * len(tokens) / avg
+            score += idf * tf * (index.k1 + 1) / (tf + index.k1 * norm)
+        naive.append(score)
+
+    for i, score in index.search(query, limit=10):
+        assert score == pytest.approx(naive[i], rel=1e-4)
+    best = max(range(n), key=lambda i: naive[i])
+    assert index.search(query, limit=1)[0][0] == best
+
+
+def test_corpus_version_changes_when_a_document_is_edited(db):
+    from app.rag.ingest import delete_document, ingest_text
+    from app.rag.store import corpus_version
+
+    before = corpus_version(db)
+    raw = "# Bike Policy\n\n## Parking\n\nBicycles may be parked in the basement rack overnight."
+    created = ingest_text(db, raw=raw, source="bike-policy.md", fallback_title="Bike Policy")
+    after_create = corpus_version(db)
+    ingest_text(
+        db,
+        raw=raw.replace("overnight", "during office hours only"),
+        source="bike-policy.md",
+        fallback_title="Bike Policy",
+    )
+    after_edit = corpus_version(db)
+    delete_document(db, created.document_id)
+
+    assert len({before, after_create, after_edit}) == 3
+    assert corpus_version(db) == before

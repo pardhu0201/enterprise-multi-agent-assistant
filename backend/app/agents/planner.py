@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 
 from langchain_core.runnables import RunnableConfig
@@ -40,10 +41,6 @@ REQUEST_MARKERS = (
     "can you",
     "could you",
     "help me",
-    "i want to",
-    "i need to",
-    "i would like to",
-    "i'd like to",
     "for me",
     "book me",
     "put in",
@@ -52,6 +49,35 @@ REQUEST_MARKERS = (
     "let's submit",
     "lets submit",
 )
+# Statements of intent are requests ("I need to take Friday off") - but only
+# outside a question. "How much notice do I need to book 5 days?" contains
+# "I need to" yet asks about the rule, so these count per clause, and only
+# when that clause does not open with an interrogative.
+DESIRE_MARKERS = (
+    "i want to",
+    "i need to",
+    "i would like to",
+    "i'd like to",
+)
+INTERROGATIVE_OPENERS = (
+    "what",
+    "how",
+    "when",
+    "where",
+    "why",
+    "who",
+    "which",
+    "can i",
+    "do i",
+    "am i",
+    "is ",
+    "are ",
+    "does",
+    "will",
+    "should",
+)
+_CLAUSE_SPLIT_RE = re.compile(r"[.?!;]+|,?\s+and\s+|,?\s+but\s+")
+_PERSONAL_RE = re.compile(r"\b(my|i|me|mine)\b")
 # ...unless the sentence opens with one of these, which makes it an imperative.
 IMPERATIVE_VERBS = (
     "submit",
@@ -85,6 +111,30 @@ def _tool_catalogue_text() -> str:
     )
 
 
+def _wants_action(lowered: str) -> bool:
+    """Does the request ask for something to be *done*?"""
+    if any(marker in lowered for marker in REQUEST_MARKERS):
+        return True
+    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(lowered) if c.strip()]
+    for position, clause in enumerate(clauses):
+        first_word = (tokenize(clause) or [""])[0]
+        # An imperative opening the request or a new sentence ("... Book me
+        # Friday off"). Mid-sentence clauses after "and" are excluded: "what
+        # happens if I take leave and take sick days" is still a question.
+        if first_word in IMPERATIVE_VERBS and (position == 0 or _starts_sentence(lowered, clause)):
+            return True
+        if not clause.startswith(INTERROGATIVE_OPENERS) and any(
+            marker in clause for marker in DESIRE_MARKERS
+        ):
+            return True
+    return False
+
+
+def _starts_sentence(lowered: str, clause: str) -> bool:
+    index = lowered.find(clause)
+    return index > 0 and lowered[:index].rstrip()[-1:] in {".", "?", "!", ";"}
+
+
 def rule_based_plan(query: str) -> PlannerOutput:
     """Deterministic planner used in demo mode and as the API fallback."""
     lowered = query.lower().strip()
@@ -101,15 +151,15 @@ def rule_based_plan(query: str) -> PlannerOutput:
         )
 
     best_tool, best_hits = "", 0
+    lookup_tool, lookup_hits = "", 0
     for spec in TOOLS.values():
         hits = sum(1 for kw in spec.keywords if kw in lowered)
         if hits > best_hits:
             best_tool, best_hits = spec.name, hits
+        if spec.read_only and hits > lookup_hits:
+            lookup_tool, lookup_hits = spec.name, hits
 
-    first_word = (tokenize(lowered) or [""])[0]
-    wants_action = any(marker in lowered for marker in REQUEST_MARKERS) or (
-        first_word in IMPERATIVE_VERBS
-    )
+    wants_action = _wants_action(lowered)
     asks_question = any(marker in lowered for marker in QUESTION_MARKERS) or "?" in query
 
     if wants_action and best_tool:
@@ -122,6 +172,12 @@ def rule_based_plan(query: str) -> PlannerOutput:
         intent = "question"
 
     candidate_tool = best_tool if intent in {"action", "mixed"} else ""
+    # "How many leave days do I have left?" is a question, but its answer is
+    # the employee's own data, not policy text. Route it to the read-only
+    # lookup - only when the question is personal, so "How many days of leave
+    # do employees get?" stays a pure policy question.
+    if not candidate_tool and lookup_tool and _PERSONAL_RE.search(lowered):
+        candidate_tool = lookup_tool
 
     queries = [query.strip()]
     if best_tool:

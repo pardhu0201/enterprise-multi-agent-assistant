@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -134,9 +134,9 @@ class ApprovalOut(BaseModel):
 
 
 class ApprovalDecision(BaseModel):
-    decision: str = Field(description="approve | reject")
-    decided_by: str = "manager@northwind.example"
-    note: str = ""
+    decision: Literal["approve", "reject"]
+    decided_by: str = Field(default="manager@northwind.example", max_length=160)
+    note: str = Field(default="", max_length=1000)
 
 
 # --- admin -----------------------------------------------------------------
@@ -160,6 +160,7 @@ class MetricsResponse(BaseModel):
     average_latency_ms: float
     low_confidence_rate: float
     actions_executed: int
+    runs_needing_review: int = 0
     top_documents: list[dict[str, Any]] = Field(default_factory=list)
     recent_runs: list[dict[str, Any]] = Field(default_factory=list)
 

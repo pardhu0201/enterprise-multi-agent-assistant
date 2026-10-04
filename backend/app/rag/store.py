@@ -9,7 +9,8 @@ one answered.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+from dataclasses import dataclass, replace
 
 import numpy as np
 from sqlalchemy import select
@@ -95,24 +96,44 @@ def dense_search(db: Session, query_vector: np.ndarray, limit: int) -> list[Scor
         except Exception as exc:
             log.warning("pgvector search failed (%s); using in-process cosine", exc)
 
-    rows = load_all_chunks(db)
-    if not rows:
-        return []
-    vectors = np.asarray(
-        [(r[0].embedding if r[0].embedding is not None else []) for r in rows],
-        dtype=np.float32,
-    )
-    if vectors.ndim != 2 or vectors.shape[0] != len(rows):
+    metadata, vectors = _vector_matrix(db)
+    if not metadata:
         return []
     sims = cosine_matrix(query_vector.astype(np.float32), vectors)
     order = np.argsort(-sims)[:limit]
     results = []
     for i in order:
-        chunk, document = rows[int(i)]
-        scored = _row_to_scored(chunk, document)
+        # Fresh copy per call: the retriever mutates scores on these objects.
+        scored = replace(metadata[int(i)])
         scored.dense_score = float(sims[int(i)])
         results.append(scored)
     return results
+
+
+# In-process cosine fallback: the chunk matrix is loaded once per corpus
+# version instead of re-reading and re-parsing every embedding per query.
+_matrix_cache: dict[str, tuple[list[ScoredChunk], np.ndarray]] = {}
+
+
+def _vector_matrix(db: Session) -> tuple[list[ScoredChunk], np.ndarray]:
+    version = corpus_version(db)
+    cached = _matrix_cache.get(version)
+    if cached is not None:
+        return cached
+
+    rows = [r for r in load_all_chunks(db) if r[0].embedding is not None]
+    metadata = [_row_to_scored(chunk, document) for chunk, document in rows]
+    vectors = np.asarray([r[0].embedding for r in rows], dtype=np.float32)
+    if not rows or vectors.ndim != 2:
+        metadata, vectors = [], np.zeros((0, 0), dtype=np.float32)
+
+    _matrix_cache.clear()
+    _matrix_cache[version] = (metadata, vectors)
+    return metadata, vectors
+
+
+def invalidate_vector_cache() -> None:
+    _matrix_cache.clear()
 
 
 def corpus_snapshot(db: Session) -> list[ScoredChunk]:
@@ -121,9 +142,13 @@ def corpus_snapshot(db: Session) -> list[ScoredChunk]:
 
 
 def corpus_version(db: Session) -> str:
-    """Cheap cache key that changes whenever the corpus changes."""
-    from sqlalchemy import func
+    """Cache key that changes whenever any document is added, edited or removed.
 
-    count = db.execute(select(func.count(Chunk.id))).scalar() or 0
-    latest = db.execute(select(func.max(Document.created_at))).scalar()
-    return f"{count}:{latest}"
+    Built from every document's id and content checksum (the checksum already
+    changes on any edit or embedder switch), so separate worker processes -
+    each with its own in-memory caches - agree on staleness without having to
+    be told. The documents table is small, so this is one cheap query.
+    """
+    rows = db.execute(select(Document.id, Document.checksum).order_by(Document.id)).all()
+    digest = hashlib.sha1("|".join(f"{i}:{c}" for i, c in rows).encode("utf-8")).hexdigest()
+    return f"{len(rows)}:{digest}"

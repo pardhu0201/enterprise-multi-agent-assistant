@@ -106,8 +106,18 @@ def test_chat_stream_emits_sse_events(client):
     assert final["answer"]
 
 
+def _next_monday(after_days: int) -> date:
+    """A Monday at least `after_days` out, so a 2-day range is always Mon-Tue.
+
+    A bare `today + N` lands on a Friday or weekend on some days of the week,
+    which made a two-working-day assertion fail depending on when CI ran.
+    """
+    start = date.today() + timedelta(days=after_days)
+    return start + timedelta(days=(7 - start.weekday()) % 7)
+
+
 def test_approval_round_trip_executes_the_action(client):
-    start = date.today() + timedelta(days=25)
+    start = _next_monday(25)
     chat = client.post(
         "/api/chat",
         json={
@@ -162,12 +172,74 @@ def test_rejection_does_not_execute(client):
     assert "rejected" in body["message"].lower()
 
 
+def test_requester_cannot_approve_their_own_request(client):
+    start = _next_monday(30)
+    chat = client.post(
+        "/api/chat",
+        json={"message": f"Book annual leave for 1 day on {start.isoformat()}"},
+    ).json()
+    approval_id = chat["approval_id"]
+
+    # E-1001's own email - the four-eyes rule refuses it.
+    response = client.post(
+        f"/api/approvals/{approval_id}/decision",
+        json={"decision": "approve", "decided_by": "arjun.bathula@northwind.example"},
+    )
+    assert response.status_code == 403
+    pending = client.get("/api/approvals?status=pending").json()
+    assert any(a["id"] == approval_id for a in pending), "request must stay pending"
+
+    # ...but they may withdraw it.
+    withdrawn = client.post(
+        f"/api/approvals/{approval_id}/decision",
+        json={"decision": "reject", "decided_by": "E-1001"},
+    )
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["status"] == "rejected"
+
+
+def test_invalid_decision_and_unknown_approval(client):
+    assert (
+        client.post("/api/approvals/missing/decision", json={"decision": "approve"}).status_code
+        == 404
+    )
+    assert (
+        client.post("/api/approvals/missing/decision", json={"decision": "maybe"}).status_code
+        == 422
+    )
+
+
+def test_admin_token_guards_state_changing_endpoints(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "admin_token", "s3cret")
+    assert client.post("/api/documents/reindex").status_code == 401
+    assert (
+        client.post("/api/documents/reindex", headers={"X-Admin-Token": "wrong"}).status_code == 401
+    )
+    assert (
+        client.post("/api/documents/reindex", headers={"X-Admin-Token": "s3cret"}).status_code
+        == 200
+    )
+    # Reads stay open.
+    assert client.get("/api/documents").status_code == 200
+    assert client.post("/api/chat", json={"message": "hello"}).status_code == 200
+
+
+def test_user_messages_are_linked_to_their_run(client):
+    body = client.post("/api/chat", json={"message": "What is the sick leave entitlement?"}).json()
+    conversation = client.get(f"/api/conversations/{body['conversation_id']}").json()
+    user_messages = [m for m in conversation["messages"] if m["role"] == "user"]
+    assert user_messages and all(m["run_id"] == body["run_id"] for m in user_messages)
+
+
 def test_metrics_summarise_runs(client):
     body = client.get("/api/metrics").json()
     assert body["runs_total"] > 0
     assert body["approvals_by_status"]
     assert 0.0 <= body["average_confidence"] <= 1.0
     assert isinstance(body["top_documents"], list)
+    assert body["runs_needing_review"] >= 0
 
 
 def test_employees_expose_leave_balances(client):

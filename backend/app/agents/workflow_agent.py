@@ -2,9 +2,13 @@
 
 Output contract: a *proposal* containing the tool name, Pydantic-validated
 arguments, a preflight preview computed against live data, and any blockers or
-warnings. Execution is physically impossible from this node - the tool's
-`execute` callable is only reachable from the approvals API after a human
-decision.
+warnings. For any tool that writes to a system of record, execution is
+impossible from this node - the tool's `execute` callable is only reachable
+from the approvals API after a human decision.
+
+The single exception is a tool registered as both ``read_only=True`` and
+``requires_approval=False`` (the leave-balance lookup): it reads data and
+changes nothing, so it runs here and its result is folded into the answer.
 """
 
 from __future__ import annotations
@@ -157,12 +161,88 @@ def _rule_based_arguments(tool: ToolSpec, query: str, today: date) -> ActionExtr
             rationale=f"Prepared an IT ticket ({category}) at {priority} priority.",
         )
 
+    if tool.name == "check_leave_balance":
+        leave_type = "sick" if any(w in lowered for w in ("sick", "medical")) else "annual"
+        return ActionExtraction(
+            arguments_json=json.dumps({"leave_type": leave_type}),
+            missing_fields=[],
+            confirmation_needed=False,
+            rationale=f"Looked up the current {leave_type} leave balance.",
+        )
+
     return ActionExtraction(
         arguments_json=json.dumps({}),
         missing_fields=["all"],
         confirmation_needed=True,
         rationale="No deterministic parser for this tool.",
     )
+
+
+def _format_balance(result: dict) -> str:
+    annual = result.get("annual") or {}
+    sick = result.get("sick") or {}
+    return (
+        f"**Your current leave balance** (from the HR system): "
+        f"{annual.get('remaining', 0):g} of {annual.get('entitlement', 0):g} annual leave days "
+        f"remaining ({annual.get('used', 0):g} used), and "
+        f"{sick.get('remaining', 0):g} of {sick.get('entitlement', 0):g} sick leave days "
+        f"remaining ({sick.get('used', 0):g} used)."
+    )
+
+
+def _lookup_update(ctx, state, tool, validated, preflight, extraction, llm_result, started) -> dict:
+    """Execute a read-only tool and fold its result into the answer."""
+    arguments = json.loads(validated.model_dump_json())
+    proposed = {
+        "tool_name": tool.name,
+        "description": tool.description,
+        "risk": tool.risk,
+        "requires_approval": False,
+        "arguments": arguments,
+        "valid": preflight.ok,
+        "blockers": preflight.blockers,
+        "warnings": preflight.warnings,
+        "preview": preflight.preview,
+        "missing_fields": [],
+        "confirmation_needed": False,
+        "rationale": extraction.rationale,
+        "extraction_mode": llm_result.mode,
+        "executed": False,
+        "result": None,
+    }
+    update: dict = {"proposed_action": proposed, "action_note": extraction.rationale}
+
+    if preflight.ok:
+        record = tool.execute(ctx.db, ctx.employee_id, validated, None)
+        proposed["executed"] = True
+        proposed["result"] = record
+        summary_line = (
+            _format_balance(record) if tool.name == "check_leave_balance" else json.dumps(record)
+        )
+        policy = (state.get("answer") or "").strip()
+        update["answer"] = f"{summary_line}\n\n{policy}" if policy else summary_line
+
+    update["trace"] = [
+        trace_event(
+            ctx,
+            "workflow",
+            (
+                f"Ran read-only lookup '{tool.name}' (no approval needed)"
+                if proposed["executed"]
+                else f"Read-only lookup '{tool.name}' could not run"
+            ),
+            status="ok" if proposed["executed"] else "error",
+            payload={
+                "tool": tool.name,
+                "arguments": arguments,
+                "blockers": preflight.blockers,
+                "executed": proposed["executed"],
+                "mode": llm_result.mode,
+            },
+            started=started,
+        )
+    ]
+    return update
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +339,12 @@ def workflow_node(state: AgentState, config: RunnableConfig) -> dict:
 
     # --- preflight against live data --------------------------------------
     preflight = tool.preflight(ctx.db, ctx.employee_id, validated)
+
+    # Read-only lookups write nothing, so there is nothing for a human to
+    # gate: run them now and answer from the system of record. Anything that
+    # writes (requires_approval=True) still stops at the approval gate.
+    if not tool.requires_approval and tool.read_only:
+        return _lookup_update(ctx, state, tool, validated, preflight, extraction, result, started)
 
     proposed = {
         "tool_name": tool.name,

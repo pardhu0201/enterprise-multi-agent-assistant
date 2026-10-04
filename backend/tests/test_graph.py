@@ -122,3 +122,59 @@ def test_graph_topology_is_described():
     for edge in topology["edges"]:
         assert edge["source"] in node_ids
         assert edge["target"] in node_ids
+
+
+def test_planner_keeps_questions_about_booking_as_questions():
+    # "I need to" inside a question asks about the rule - it is not a request.
+    plan = rule_based_plan("How much notice do I need to book 5 days of annual leave?")
+    assert plan.intent == "question"
+    assert plan.candidate_tool == ""
+
+    # The same phrase as a statement is a request.
+    plan = rule_based_plan("I need to take annual leave on 2026-12-14")
+    assert plan.intent in {"action", "mixed"}
+    assert plan.candidate_tool == "submit_leave_request"
+
+    # A request in a second sentence still counts.
+    plan = rule_based_plan("What is the notice period? Book me leave on 2026-12-14.")
+    assert plan.intent == "mixed"
+
+
+def test_policy_question_does_not_trigger_a_lookup():
+    plan = rule_based_plan("How many days of paid annual leave do employees get each year?")
+    assert plan.candidate_tool == ""
+
+
+def test_balance_question_is_answered_from_the_hr_system(db):
+    from app.db.models import Approval
+
+    result = run_turn(db, query="How many leave days do I have left?")
+    action = result["proposed_action"]
+    assert action and action["tool_name"] == "check_leave_balance"
+    assert action["executed"] is True
+    assert action["requires_approval"] is False
+    assert result["approval_id"] is None
+    assert result["status"] != "awaiting_approval"
+    assert db.query(Approval).filter(Approval.run_id == result["run_id"]).count() == 0
+
+    # The figure comes from the live HR record (other tests may have booked
+    # leave for E-1001 already, so compare against the record, not the seed).
+    from app.db.models import Employee
+
+    employee = db.get(Employee, "E-1001")
+    db.refresh(employee)
+    remaining = employee.annual_leave_total - employee.annual_leave_used
+    assert action["result"]["annual"]["remaining"] == remaining
+    assert f"{remaining:g}" in result["answer"]
+    assert "ungrounded_numbers" not in result["flags"]
+
+
+def test_runs_needing_review_are_written_to_the_audit_log(db):
+    from app.db.models import AuditLog
+
+    result = run_turn(db, query="What is the share price forecast for next quarter?")
+    if result["status"] in {"escalated", "needs_clarification"}:
+        entries = db.query(AuditLog).filter(AuditLog.entity_id == result["run_id"]).all()
+        assert [e.action for e in entries] == [f"run.{result['status']}"]
+    else:  # pragma: no cover - the golden set pins this case as low-confidence
+        assert result["confidence"] < 0.55

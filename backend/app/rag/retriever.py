@@ -24,7 +24,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.logging_config import get_logger
 from app.rag.embeddings import get_embedder, tokenize
-from app.rag.store import ScoredChunk, corpus_snapshot, corpus_version, dense_search
+from app.rag.store import (
+    ScoredChunk,
+    corpus_snapshot,
+    corpus_version,
+    dense_search,
+    invalidate_vector_cache,
+)
 
 log = get_logger(__name__)
 
@@ -82,21 +88,50 @@ _QUERY_STOPWORDS = {
 # ---------------------------------------------------------------------------
 @dataclass
 class BM25Index:
+    """Okapi BM25 over an inverted index.
+
+    Postings (term -> chunk indices and term frequencies) and each chunk's
+    length normaliser are computed once at build time, so a query only touches
+    the chunks that contain one of its terms instead of re-counting every term
+    in every chunk.
+    """
+
     chunks: list[ScoredChunk]
-    doc_tokens: list[list[str]]
-    doc_freq: Counter
+    postings: dict[str, tuple[np.ndarray, np.ndarray]]
+    length_norm: np.ndarray  # k1 * (1 - b + b * len / avg_len), per chunk
     avg_len: float
     k1: float = 1.5
     b: float = 0.75
 
     @classmethod
-    def build(cls, chunks: list[ScoredChunk]) -> BM25Index:
+    def build(cls, chunks: list[ScoredChunk], k1: float = 1.5, b: float = 0.75) -> BM25Index:
         doc_tokens = [tokenize(c.content) for c in chunks]
-        doc_freq: Counter = Counter()
-        for tokens in doc_tokens:
-            doc_freq.update(set(tokens))
-        avg_len = (sum(len(t) for t in doc_tokens) / len(doc_tokens)) if doc_tokens else 0.0
-        return cls(chunks=chunks, doc_tokens=doc_tokens, doc_freq=doc_freq, avg_len=avg_len or 1.0)
+        lengths = np.asarray([len(t) for t in doc_tokens], dtype=np.float32)
+        avg_len = float(lengths.mean()) if len(lengths) and lengths.mean() > 0 else 1.0
+
+        raw: dict[str, tuple[list[int], list[int]]] = {}
+        for i, tokens in enumerate(doc_tokens):
+            for term, tf in Counter(tokens).items():
+                ids, tfs = raw.setdefault(term, ([], []))
+                ids.append(i)
+                tfs.append(tf)
+        postings = {
+            term: (np.asarray(ids, dtype=np.int32), np.asarray(tfs, dtype=np.float32))
+            for term, (ids, tfs) in raw.items()
+        }
+        length_norm = (k1 * (1.0 - b + b * lengths / avg_len)).astype(np.float32)
+        return cls(
+            chunks=chunks,
+            postings=postings,
+            length_norm=length_norm,
+            avg_len=avg_len,
+            k1=k1,
+            b=b,
+        )
+
+    @property
+    def doc_freq(self) -> dict[str, int]:
+        return {term: len(ids) for term, (ids, _) in self.postings.items()}
 
     def search(self, query: str, limit: int) -> list[tuple[int, float]]:
         q_tokens = tokenize(query)
@@ -105,16 +140,13 @@ class BM25Index:
         n = len(self.chunks)
         scores = np.zeros(n, dtype=np.float32)
         for term in set(q_tokens):
-            df = self.doc_freq.get(term, 0)
-            if df == 0:
+            posting = self.postings.get(term)
+            if posting is None:
                 continue
+            ids, tfs = posting
+            df = len(ids)
             idf = math.log(1.0 + (n - df + 0.5) / (df + 0.5))
-            for i, tokens in enumerate(self.doc_tokens):
-                tf = tokens.count(term)
-                if tf == 0:
-                    continue
-                norm = 1.0 - self.b + self.b * (len(tokens) / self.avg_len)
-                scores[i] += idf * (tf * (self.k1 + 1.0)) / (tf + self.k1 * norm)
+            scores[ids] += idf * (tfs * (self.k1 + 1.0)) / (tfs + self.length_norm[ids])
         order = np.argsort(-scores)[:limit]
         return [(int(i), float(scores[int(i)])) for i in order if scores[int(i)] > 0]
 
@@ -135,6 +167,7 @@ def _get_index(db: Session) -> BM25Index:
 
 def invalidate_index() -> None:
     _index_cache.clear()
+    invalidate_vector_cache()
 
 
 # ---------------------------------------------------------------------------

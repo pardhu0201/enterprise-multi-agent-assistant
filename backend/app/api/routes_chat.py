@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.runner import iter_turn, run_turn
+from app.api.security import require_admin
 from app.db.base import SessionLocal, get_session
 from app.db.models import Conversation, Message, Run
 from app.logging_config import get_logger
@@ -131,7 +132,7 @@ def get_conversation(conversation_id: str, db: Session = Depends(get_session)):
     )
 
 
-@router.delete("/conversations/{conversation_id}")
+@router.delete("/conversations/{conversation_id}", dependencies=[Depends(require_admin)])
 def delete_conversation(conversation_id: str, db: Session = Depends(get_session)):
     conversation = db.get(Conversation, conversation_id)
     if conversation is None:
