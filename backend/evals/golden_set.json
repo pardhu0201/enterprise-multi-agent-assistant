@@ -1,5 +1,6 @@
 {
   "description": "Golden evaluation set for the Northwind multi-agent assistant. Each case pins the routing decision, the document that must be retrieved, and facts the answer should surface.",
+  "date_placeholders": "{{today-N}} is N days ago; {{monday+N}} is the first Monday on or after today+N; {{monday+N+K}} is K days after that Monday. Resolved at run time so action cases never drift into the past.",
   "cases": [
     {
       "id": "leave-notice",
@@ -192,7 +193,7 @@
     },
     {
       "id": "action-leave",
-      "query": "Please book 3 days of annual leave for me starting 2026-11-16",
+      "query": "Please book 3 days of annual leave for me starting {{monday+42}}",
       "intent": "action",
       "tool": "submit_leave_request",
       "document": null,
@@ -200,13 +201,13 @@
       "must_not_contain": [],
       "expected_arguments": {
         "leave_type": "annual",
-        "start_date": "2026-11-16",
-        "end_date": "2026-11-18"
+        "start_date": "{{monday+42}}",
+        "end_date": "{{monday+42+2}}"
       }
     },
     {
       "id": "action-sick-leave",
-      "query": "I need to take sick leave on 2026-11-09, please submit it",
+      "query": "I need to take sick leave on {{monday+35}}, please submit it",
       "intent": "action",
       "tool": "submit_leave_request",
       "document": null,
@@ -214,13 +215,13 @@
       "must_not_contain": [],
       "expected_arguments": {
         "leave_type": "sick",
-        "start_date": "2026-11-09",
-        "end_date": "2026-11-09"
+        "start_date": "{{monday+35}}",
+        "end_date": "{{monday+35}}"
       }
     },
     {
       "id": "action-expense",
-      "query": "Please file an expense claim for 2400 for a client dinner on 2026-09-15",
+      "query": "Please file an expense claim for 2400 for a client dinner on {{today-5}}",
       "intent": "action",
       "tool": "submit_expense_claim",
       "document": null,
@@ -246,15 +247,15 @@
     },
     {
       "id": "mixed-leave",
-      "query": "Summarise the leave policy and book me 2 days off starting 2026-12-07",
+      "query": "Summarise the leave policy and book me 2 days off starting {{monday+56}}",
       "intent": "mixed",
       "tool": "submit_leave_request",
       "document": "Leave and Time Off Policy",
       "must_contain": [],
       "must_not_contain": [],
       "expected_arguments": {
-        "start_date": "2026-12-07",
-        "end_date": "2026-12-08"
+        "start_date": "{{monday+56}}",
+        "end_date": "{{monday+56+1}}"
       }
     },
     {
@@ -277,7 +278,7 @@
     },
     {
       "id": "intent-statement",
-      "query": "I need to take a sick day on 2026-12-14",
+      "query": "I need to take a sick day on {{monday+63}}",
       "intent": "action",
       "tool": "submit_leave_request",
       "document": null,
@@ -285,8 +286,8 @@
       "must_not_contain": [],
       "expected_arguments": {
         "leave_type": "sick",
-        "start_date": "2026-12-14",
-        "end_date": "2026-12-14"
+        "start_date": "{{monday+63}}",
+        "end_date": "{{monday+63}}"
       }
     },
     {

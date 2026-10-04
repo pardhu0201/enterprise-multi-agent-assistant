@@ -46,6 +46,9 @@ class AgentState(TypedDict, total=False):
     # --- workflow ---
     proposed_action: dict[str, Any] | None
     action_note: str
+    # "record" when the answer comes solely from a read-only lookup of the
+    # system of record rather than from cited policy passages.
+    answer_source: str
 
     # --- verification ---
     verification: dict[str, Any]

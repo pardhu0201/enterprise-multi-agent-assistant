@@ -197,3 +197,21 @@ def test_stale_session_cannot_execute_an_approval_twice(db):
 
     executed = db.query(LeaveRequest).filter(LeaveRequest.approval_id == approval_id).count()
     assert executed == 1
+
+
+def test_eval_date_placeholders_resolve_relative_to_today():
+    from evals.run_eval import resolve_dates
+
+    today = date(2026, 10, 7)  # a Wednesday
+    resolved = resolve_dates(
+        {
+            "q": "book from {{monday+5}} for 3 days",
+            "args": {"start": "{{monday+5}}", "end": "{{monday+5+2}}", "on": "{{today-5}}"},
+            "n": 3,
+        },
+        today,
+    )
+    assert resolved["q"] == "book from 2026-10-12 for 3 days"  # Oct 7 + 5 = Mon Oct 12
+    assert resolved["args"] == {"start": "2026-10-12", "end": "2026-10-14", "on": "2026-10-02"}
+    assert resolved["n"] == 3
+    assert resolve_dates("{{monday+0}}", date(2026, 10, 12)) == "2026-10-12"  # already Monday
